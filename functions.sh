@@ -171,7 +171,8 @@ function git_remote_update {
     # If update fails try again for up to a total of 3 attempts.
     MAX_ATTEMPTS=3
     COUNT=0
-    until timeout -k 1m 5m git remote update; do
+    timeout -k 1m 1m true 2>/dev/null && KILL_AFTER="-k 1m"
+    until timeout $KILL_AFTER 5m git remote update; do
         COUNT=$(($COUNT + 1))
         echo "git remote update failed."
         if [ $COUNT -eq $MAX_ATTEMPTS ]; then
