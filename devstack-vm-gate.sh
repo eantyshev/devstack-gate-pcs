@@ -49,7 +49,7 @@ function setup_localrc {
     elif is_fedora; then
         sudo yum install PyYAML -y
     fi
-    MY_ENABLED_SERVICES=`cd $BASE/new/devstack-gate && ./test-matrix.py -b $LOCALRC_BRANCH -f $DEVSTACK_GATE_FEATURE_MATRIX`
+    MY_ENABLED_SERVICES=`cd $WORKSPACE/devstack-gate && ./test-matrix.py -b $LOCALRC_BRANCH -f $DEVSTACK_GATE_FEATURE_MATRIX`
 
     # Allow optional injection of ENABLED_SERVICES from the calling context
     if [[ ! -z $ENABLED_SERVICES ]] ; then
