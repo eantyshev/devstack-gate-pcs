@@ -74,15 +74,6 @@ function setup_localrc {
         echo "Q_DVR_MODE=dvr_snat" >>localrc
     fi
 
-    if [[ "$LOCALRC_BRANCH" == "stable/havana" ]]; then
-        # we don't want to enable services for grenade that don't have upgrade support
-        # otherwise they can break grenade, especially when they are projects like
-        # ceilometer which inject code in other projects
-        if [[ -n "$DEVSTACK_GATE_GRENADE" ]]; then
-            SKIP_EXERCISES=${SKIP_EXERCISES},swift,client-args
-        fi
-    fi
-
     cat <<EOF >>localrc
 USE_SCREEN=False
 DEST=$BASE/$LOCALRC_OLDNEW
@@ -122,6 +113,7 @@ CINDER_PERIODIC_INTERVAL=10
 export OS_NO_CACHE=True
 CEILOMETER_BACKEND=$DEVSTACK_GATE_CEILOMETER_BACKEND
 LIBS_FROM_GIT=$DEVSTACK_PROJECT_FROM_GIT
+ZAQAR_BACKEND=$DEVSTACK_GATE_ZAQAR_BACKEND
 EOF
 
     if [[ "$DEVSTACK_CINDER_SECURE_DELETE" -eq "0" ]]; then
@@ -145,7 +137,6 @@ EOF
     if [[ "$DEVSTACK_GATE_VIRT_DRIVER" == "ironic" ]]; then
         echo "VIRT_DRIVER=ironic" >>localrc
         echo "IRONIC_BAREMETAL_BASIC_OPS=True" >>localrc
-        echo "IRONIC_VM_COUNT=3" >>localrc
         echo "IRONIC_VM_LOG_DIR=$BASE/$LOCALRC_OLDNEW/ironic-bm-logs" >>localrc
         echo "DEFAULT_INSTANCE_TYPE=baremetal" >>localrc
         echo "BUILD_TIMEOUT=300" >>localrc
@@ -154,12 +145,17 @@ EOF
         fi
         if [[ "$DEVSTACK_GATE_IRONIC_DRIVER" == "agent_ssh" ]]; then
             echo "SWIFT_ENABLE_TEMPURLS=True" >>localrc
+            echo "SWIFT_TEMPURL_KEY=secretkey" >>localrc
             echo "IRONIC_ENABLED_DRIVERS=fake,agent_ssh,agent_ipmitool" >>localrc
             echo "IRONIC_DEPLOY_DRIVER=agent_ssh" >>localrc
             # agent driver doesn't support ephemeral volumes yet
             echo "IRONIC_VM_EPHEMERAL_DISK=0" >>localrc
+            # agent CoreOS ramdisk is a little heavy
+            echo "IRONIC_VM_SPECS_RAM=1024" >>localrc
+            echo "IRONIC_VM_COUNT=1" >>localrc
         else
             echo "IRONIC_VM_EPHEMERAL_DISK=1" >>localrc
+            echo "IRONIC_VM_COUNT=3" >>localrc
         fi
     fi
 
@@ -430,7 +426,7 @@ if [[ "$DEVSTACK_GATE_TEMPEST" -eq "1" ]]; then
         sudo -H -u tempest tox -efull -- --concurrency=$TEMPEST_CONCURRENCY
     elif [[ "$DEVSTACK_GATE_TEMPEST_STRESS" -eq "1" ]] ; then
         echo "Running stress tests"
-        sudo -H -u tempest tox -estress
+        sudo -H -u tempest tox -estress -- -d 3600 -S -s -t tempest/stress/etc/stress-tox-job.json
     elif [[ "$DEVSTACK_GATE_TEMPEST_HEAT_SLOW" -eq "1" ]] ; then
         echo "Running slow heat tests"
         sudo -H -u tempest tox -eheat-slow -- --concurrency=$TEMPEST_CONCURRENCY
