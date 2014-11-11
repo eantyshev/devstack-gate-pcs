@@ -100,7 +100,7 @@ PROJECTS="openstack/tripleo-incubator $PROJECTS"
 PROJECTS="openstack/trove $PROJECTS"
 
 
-export BASE=/opt/stack
+export BASE=/vz/stack
 
 # The URL from which to fetch ZUUL references
 export ZUUL_URL=${ZUUL_URL:-http://zuul.openstack.org/p}
