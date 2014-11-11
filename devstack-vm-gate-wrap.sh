@@ -323,6 +323,9 @@ export DEVSTACK_GATE_CEILOMETER_BACKEND=${DEVSTACK_GATE_CEILOMETER_BACKEND:-mysq
 # Set Zaqar backend to override the default one. It could be mongodb, redis.
 export DEVSTACK_GATE_ZAQAR_BACKEND=${DEVSTACK_GATE_ZAQAR_BACKEND:-mongodb}
 
+# Set to test on Parallels Cloud Server 6 (single node, prepared slave)
+export DEVSTACK_GATE_PCS=${DEVSTACK_GATE_PCS:-0}
+
 if ! function_exists "gate_hook"; then
     # the command we use to run the gate
     function gate_hook {

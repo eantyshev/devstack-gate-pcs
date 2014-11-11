@@ -161,6 +161,14 @@ EOF
         fi
     fi
 
+    if [[ "$DEVSTACK_GATE_PCS" -eq 1 ]]; then
+         echo "NOVA_REPO=git://git-ovzcore.sw.ru/nova" >> localrc
+         echo "HOST_IP_IFACE=eth1" >> localrc
+         echo "FLAT_INTERFACE=eth2" >> localrc
+         echo "FIXED_RANGE=10.2.2.0/24" >> localrc
+         echo "FIXED_NETWORK_SIZE=256" >> localrc
+    fi
+
     if [[ "$DEVSTACK_GATE_VIRT_DRIVER" == "xenapi" ]]; then
         if [ ! $DEVSTACK_GATE_XENAPI_DOM0_IP -o ! $DEVSTACK_GATE_XENAPI_DOMU_IP -o ! $DEVSTACK_GATE_XENAPI_PASSWORD ]; then
             echo "XenAPI must have DEVSTACK_GATE_XENAPI_DOM0_IP, DEVSTACK_GATE_XENAPI_DOMU_IP and DEVSTACK_GATE_XENAPI_PASSWORD all set"
