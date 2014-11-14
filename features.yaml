@@ -40,6 +40,9 @@ config:
     features: [zeromq]
   ceph:
     features: [ceph]
+  pcs:
+    features: [qpid]
+    rm-features: [ceilometer, swift, heat, trove, sahara]
 
 branches:
   # The value of ""default" is the name of the "trunk" branch
