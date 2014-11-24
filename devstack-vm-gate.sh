@@ -175,6 +175,8 @@ EOF
          echo "FLAT_INTERFACE=eth2" >> localrc
          echo "FIXED_RANGE=10.2.2.0/24" >> localrc
          echo "FIXED_NETWORK_SIZE=256" >> localrc
+         echo "LIBVIRT_TYPE=parallels" >> localrc
+         echo "LIBVIRT_FIREWALL_DRIVER=nova.virt.firewall.NoopFirewallDriver" >> localrc
     fi
 
     if [[ "$DEVSTACK_GATE_VIRT_DRIVER" == "xenapi" ]]; then
