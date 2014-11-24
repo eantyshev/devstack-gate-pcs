@@ -279,6 +279,10 @@ function setup_project {
     echo "Setting up $project @ $branch"
     git_clone_and_cd $project $short_project
 
+    if [[ "$project" = "openstack/nova" || "$project" = "openstack-dev/devstack" ]]; then
+	return 0
+    fi
+
     git_remote_set_url origin $git_base/$project
 
     # allow for possible project branch override
