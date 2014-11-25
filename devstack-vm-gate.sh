@@ -475,24 +475,6 @@ EOF
             sudo ip link set mtu 1450 dev br-ex
         fi
     fi
-    if [[ "$DEVSTACK_GATE_PCS" -eq "1" ]]; then
-        if [[ ! -d setup_pcs ]]; then
-            git clone git://git-ovzcore.sw.ru/openstack-infra setup_pcs
-        fi
-
-        (
-        cd setup_pcs
-        git pull
-        source functions.sh
-        install_pcs_devel_env
-        install_open_sdk
-        install_libvirt
-        install_libvirt_python
-        install_pcs_nova
-        vzctl create 1001 --ostemplate centos-6-x86_64
-        ./tune_devstack_for_pcs.sh
-        )
-    fi
 fi
 
 if [[ "$DEVSTACK_GATE_UNSTACK" -eq "1" ]]; then
