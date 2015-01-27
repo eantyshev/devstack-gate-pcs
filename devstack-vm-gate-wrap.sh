@@ -55,15 +55,21 @@ PROJECTS="openstack/ironic $PROJECTS"
 PROJECTS="openstack/ironic-python-agent $PROJECTS"
 PROJECTS="openstack/keystone $PROJECTS"
 PROJECTS="openstack/keystonemiddleware $PROJECTS"
+PROJECTS="openstack/manila $PROJECTS"
 PROJECTS="openstack/zaqar $PROJECTS"
 PROJECTS="openstack/neutron $PROJECTS"
+PROJECTS="openstack/neutron-fwaas $PROJECTS"
+PROJECTS="openstack/neutron-lbaas $PROJECTS"
+PROJECTS="openstack/neutron-vpnaas $PROJECTS"
 PROJECTS="openstack/nova $PROJECTS"
 PROJECTS="openstack/os-apply-config $PROJECTS"
 PROJECTS="openstack/os-cloud-config $PROJECTS"
 PROJECTS="openstack/os-collect-config $PROJECTS"
+PROJECTS="openstack/os-net-config $PROJECTS"
 PROJECTS="openstack/os-refresh-config $PROJECTS"
 PROJECTS="openstack/oslo.concurrency $PROJECTS"
 PROJECTS="openstack/oslo.config $PROJECTS"
+PROJECTS="openstack/oslo.context $PROJECTS"
 PROJECTS="openstack/oslo.db $PROJECTS"
 PROJECTS="openstack/oslo.i18n $PROJECTS"
 PROJECTS="openstack/oslo.log $PROJECTS"
@@ -80,6 +86,7 @@ PROJECTS="openstack/python-glanceclient $PROJECTS"
 PROJECTS="openstack/python-heatclient $PROJECTS"
 PROJECTS="openstack/python-ironicclient $PROJECTS"
 PROJECTS="openstack/python-keystoneclient $PROJECTS"
+PROJECTS="openstack/python-manilaclient $PROJECTS"
 PROJECTS="openstack/python-zaqarclient $PROJECTS"
 PROJECTS="openstack/python-neutronclient $PROJECTS"
 PROJECTS="openstack/python-novaclient $PROJECTS"
@@ -95,6 +102,7 @@ PROJECTS="openstack/swift $PROJECTS"
 PROJECTS="openstack/taskflow $PROJECTS"
 PROJECTS="openstack/tempest $PROJECTS"
 PROJECTS="openstack/tempest-lib $PROJECTS"
+PROJECTS="openstack/tooz $PROJECTS"
 PROJECTS="openstack/tripleo-heat-templates $PROJECTS"
 PROJECTS="openstack/tripleo-image-elements $PROJECTS"
 PROJECTS="openstack/tripleo-incubator $PROJECTS"
@@ -153,6 +161,9 @@ export DEVSTACK_GATE_MQ_DRIVER=${DEVSTACK_GATE_MQ_DRIVER:-"rabbitmq"}
 
 # Set to 1 to run tempest stress tests
 export DEVSTACK_GATE_TEMPEST_STRESS=${DEVSTACK_GATE_TEMPEST_STRESS:-0}
+
+# This value must be provided when DEVSTACK_GATE_TEMPEST_STRESS is set.
+export DEVSTACK_GATE_TEMPEST_STRESS_ARGS=${DEVSTACK_GATE_TEMPEST_STRESS_ARGS:-""}
 
 # Set to 1 to run tempest heat slow tests
 export DEVSTACK_GATE_TEMPEST_HEAT_SLOW=${DEVSTACK_GATE_TEMPEST_HEAT_SLOW:-0}
@@ -217,6 +228,9 @@ export DEVSTACK_GATE_INSTALL_TESTONLY=${DEVSTACK_GATE_INSTALL_TESTONLY:-0}
 # Set to 0 to run services that default under Apache + mod_wsgi under alternatives (e.g. eventlet)
 # if possible
 export DEVSTACK_GATE_ENABLE_HTTPD_MOD_WSGI_SERVICES=${DEVSTACK_GATE_ENABLE_HTTPD_MOD_WSGI_SERVICES:-1}
+
+# Set to 1 to replace Nova V2 endpoint with V2.1 API
+export DEVSTACK_GATE_NOVA_REPLACE_V2_ENDPOINT_WITH_V21_API=${DEVSTACK_GATE_NOVA_REPLACE_V2_ENDPOINT_WITH_V21_API:-0}
 
 # Set the number of threads to run tempest with
 DEFAULT_CONCURRENCY=$(nproc)
@@ -347,16 +361,16 @@ tsfilter setup_host &> $WORKSPACE/logs/devstack-gate-setup-host.txt
 if [ -n "$DEVSTACK_GATE_GRENADE" ]; then
     echo "Setting up the new (migrate to) workspace"
     echo "... this takes 3 - 5 minutes (logs at logs/devstack-gate-setup-workspace-new.txt.gz)"
-    tsfilter setup_workspace $GRENADE_NEW_BRANCH $BASE/new copycache &> \
+    tsfilter setup_workspace "$GRENADE_NEW_BRANCH" "$BASE/new" copycache &> \
         $WORKSPACE/logs/devstack-gate-setup-workspace-new.txt
     echo "Setting up the old (migrate from) workspace ..."
     echo "... this takes 3 - 5 minutes (logs at logs/devstack-gate-setup-workspace-old.txt.gz)"
-    tsfilter setup_workspace $GRENADE_OLD_BRANCH $BASE/old &> \
+    tsfilter setup_workspace "$GRENADE_OLD_BRANCH" "$BASE/old" &> \
         $WORKSPACE/logs/devstack-gate-setup-workspace-old.txt
 else
     echo "Setting up the workspace"
     echo "... this takes 3 - 5 minutes (logs at logs/devstack-gate-setup-workspace-new.txt.gz)"
-    tsfilter setup_workspace $OVERRIDE_ZUUL_BRANCH $BASE/new &> \
+    tsfilter setup_workspace "$OVERRIDE_ZUUL_BRANCH" "$BASE/new" &> \
         $WORKSPACE/logs/devstack-gate-setup-workspace-new.txt
 fi
 # It is in brackets for avoiding inheriting a huge environment variable
@@ -422,10 +436,10 @@ echo "Cleaning up host"
 echo "... this takes 3 - 4 minutes (logs at logs/devstack-gate-cleanup-host.txt.gz)"
 tsfilter cleanup_host &> $WORKSPACE/devstack-gate-cleanup-host.txt
 if [[ "$DEVSTACK_GATE_TOPOLOGY" != "aio" ]]; then
-    for NODE in `cat /etc/nodepool/sub_nodes`; do
+    for NODE in `cat /etc/nodepool/sub_nodes_private`; do
         echo "Collecting logs from $NODE"
         remote_command $NODE "source $WORKSPACE/test_env.sh; source $BASE/new/devstack-gate/functions.sh; cleanup_host"
-        rsync -avz "$NODE:$BASE/logs/"  "$BASE/logs/$NODE/"
+        rsync -avz "$NODE:$BASE/logs/"  "$BASE/logs/$NODE-subnode/"
     done
 fi
 sudo mv $WORKSPACE/devstack-gate-cleanup-host.txt $BASE/logs/

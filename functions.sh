@@ -27,6 +27,15 @@ function is_ubuntu {
     lsb_release -i 2>/dev/null | grep -iq "ubuntu"
 }
 
+function is_debian {
+    # do not rely on lsb_release because it may be not installed by default
+    cat /etc/*-release | grep ID 2>/dev/null | grep -iq "debian"
+}
+
+function uses_debs {
+    # check if apt-get is installed, valid for debian based
+    type "apt-get" 2>/dev/null
+}
 
 function function_exists {
     type $1 2>/dev/null | grep -q 'is a function'
@@ -91,7 +100,7 @@ function start_timer {
     # 4 hrs (which has happened)
     if is_fedora; then
         local ntp_service='ntpd'
-    elif is_ubuntu; then
+    elif uses_debs; then
         local ntp_service='ntp'
     else
         echo "Unsupported platform, can't determine ntp service"
@@ -176,6 +185,7 @@ function git_remote_update {
         COUNT=$(($COUNT + 1))
         echo "git remote update failed."
         if [ $COUNT -eq $MAX_ATTEMPTS ]; then
+            echo "Max attempts reached for git remote update; giving up."
             exit 1
         fi
         SLEEP_TIME=$((30 + $RANDOM % 60))
@@ -336,6 +346,11 @@ function setup_workspace {
     # Enabled detailed logging, since output of this function is redirected
     set -o xtrace
 
+    if [ -z "$base_branch" ]; then
+        echo "ERROR: setup_workspace: base_branch is an empty string!" >&2
+        return 1
+    fi
+
     fix_disk_layout
 
     sudo mkdir -p $DEST
@@ -408,7 +423,7 @@ function setup_host {
     sudo mkdir -p $BASE
 
     # Start with a fresh syslog
-    if is_ubuntu; then
+    if uses_debs; then
         sudo stop rsyslog
         sudo mv /var/log/syslog /var/log/syslog-pre-devstack
         sudo mv /var/log/kern.log /var/log/kern_log-pre-devstack
@@ -437,6 +452,11 @@ function setup_host {
     chmod 0440 $TEMPFILE
     sudo chown root:root $TEMPFILE
     sudo mv $TEMPFILE /etc/sudoers.d/50_stack_sh
+
+    # Create user's ~/.cache directory with proper permissions, ensuring later
+    # 'sudo pip install's do not create it owned by root.
+    sudo mkdir -p $BASE/new/.cache
+    sudo chown -R stack:stack $BASE/new/.cache
 
     # Create a tempest user for tempest to run as, so that we can
     # revoke sudo permissions from that user when appropriate.
@@ -482,7 +502,7 @@ function cleanup_host {
     sleep 2
 
     # No matter what, archive logs and config files
-    if is_ubuntu; then
+    if uses_debs; then
         sudo cp /var/log/syslog $BASE/logs/syslog.txt
         sudo cp /var/log/kern.log $BASE/logs/kern_log.txt
     elif is_fedora; then
@@ -493,28 +513,17 @@ function cleanup_host {
             | sudo tee $BASE/logs/syslog.txt > /dev/null
     fi
 
-    # horizon
-    if is_ubuntu; then
-        sudo cp /var/log/apache2/horizon_error.log $BASE/logs/horizon_error.log
+    # apache logs; including wsgi stuff like horizon, keystone, etc.
+    if uses_debs; then
+        local apache_logs=/var/log/apache2
     elif is_fedora; then
-        sudo cp /var/log/httpd/horizon_error.log $BASE/logs/horizon_error.log
+        local apache_logs=/var/log/httpd
     fi
-
-    # apache2
-    if is_ubuntu; then
-        if [ -f /var/log/apache2/error.log ] ; then
-            sudo cp /var/log/apache2/error.log $BASE/logs/apache2_error.log
-        fi
-    elif is_fedora; then
-        if [ -f /var/log/httpd/error.log ] ; then
-            sudo cp /var/log/httpd/error.log $BASE/logs/apache2_error.log
-        fi
-    fi
+    sudo cp -r ${apache_logs} $BASE/logs/apache
 
     # rabbitmq logs
     if [ -d /var/log/rabbitmq ]; then
-        sudo mkdir $BASE/logs/rabbitmq/
-        sudo cp /var/log/rabbitmq/* $BASE/logs/rabbitmq/
+        sudo cp -r /var/log/rabbitmq $BASE/logs
     fi
 
     # db logs
@@ -532,16 +541,11 @@ function cleanup_host {
 
     # libvirt
     if [ -d /var/log/libvirt ] ; then
-        sudo cp /var/log/libvirt/libvirtd*.log $BASE/logs/
-        if [ -d /var/log/libvirt/qemu ] ; then
-            sudo mkdir $BASE/logs/qemu
-            sudo cp /var/log/libvirt/qemu/* $BASE/logs/qemu/
-        fi
+        sudo cp -r /var/log/libvirt $BASE/logs/
     fi
 
     # sudo config
-    sudo mkdir $BASE/logs/sudoers.d/
-    sudo cp /etc/sudoers.d/* $BASE/logs/sudoers.d/
+    sudo cp -r /etc/sudoers.d $BASE/logs/
     sudo cp /etc/sudoers $BASE/logs/sudoers.txt
 
     # Archive config files
@@ -555,7 +559,7 @@ function cleanup_host {
 
     # Archive Apache config files
     sudo mkdir $BASE/logs/apache_config
-    if is_ubuntu; then
+    if uses_debs; then
         if [[ -d /etc/apache2/sites-enabled ]]; then
             sudo cp /etc/apache2/sites-enabled/* $BASE/logs/apache_config
         fi
@@ -578,6 +582,9 @@ function cleanup_host {
         sudo cp $BASE/old/devstacklog.txt $BASE/logs/old/
         sudo cp $BASE/old/devstack/localrc $BASE/logs/old/localrc.txt
         sudo cp $BASE/old/tempest/etc/tempest.conf $BASE/logs/old/tempest_conf.txt
+        if -f [ $BASE/old/devstack/tempest.log ] ; then
+            sudo cp $BASE/old/devstack/tempest.log $BASE/logs/old/verify_tempest_conf.log
+        fi
 
         # grenade logs
         sudo cp $BASE/new/grenade/localrc $BASE/logs/grenade_localrc.txt
@@ -605,6 +612,9 @@ function cleanup_host {
         xargs -0 -I {} sudo cp {} $NEWLOGTARGET/
     sudo cp $BASE/new/devstacklog.txt $NEWLOGTARGET/
     sudo cp $BASE/new/devstack/localrc $NEWLOGTARGET/localrc.txt
+    if [ -f $BASE/new/devstack/tempest.log ]; then
+        sudo cp $BASE/new/devstack/tempest.log $NEWLOGTARGET/verify_tempest_conf.log
+    fi
 
     # Copy failure files if they exist
     if [ $(ls $BASE/status/stack/*.failure | wc -l) -gt 0 ]; then
@@ -640,7 +650,10 @@ function cleanup_host {
 
     # Process testr artifacts.
     if [ -f $BASE/new/tempest/.testrepository/0 ]; then
-        sudo cp $BASE/new/tempest/.testrepository/0 $BASE/logs/testrepository.subunit
+        pushd $BASE/new/tempest
+        sudo testr last --subunit > $WORKSPACE/testrepository.subunit
+        popd
+        sudo mv $WORKSPACE/testrepository.subunit $BASE/logs/testrepository.subunit
         sudo python /usr/local/jenkins/slave_scripts/subunit2html.py $BASE/logs/testrepository.subunit $BASE/logs/testr_results.html
         sudo gzip -9 $BASE/logs/testrepository.subunit
         sudo gzip -9 $BASE/logs/testr_results.html
@@ -654,7 +667,10 @@ function cleanup_host {
         sudo chmod a+r $BASE/logs/testrepository.subunit.gz
     fi
     if [ -f $BASE/old/tempest/.testrepository/0 ]; then
-        sudo cp $BASE/old/tempest/.testrepository/0 $BASE/logs/old/testrepository.subunit
+        pushd $BASE/old/tempest
+        sudo testr last --subunit > $WORKSPACE/testrepository.subunit
+        popd
+        sudo mv $WORKSPACE/testrepository.subunit $BASE/logs/old/testrepository.subunit
         sudo python /usr/local/jenkins/slave_scripts/subunit2html.py $BASE/logs/old/testrepository.subunit $BASE/logs/old/testr_results.html
         sudo gzip -9 $BASE/logs/old/testrepository.subunit
         sudo gzip -9 $BASE/logs/old/testr_results.html

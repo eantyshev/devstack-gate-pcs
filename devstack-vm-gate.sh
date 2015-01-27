@@ -49,7 +49,7 @@ function setup_localrc {
     fi
 
     # Install PyYaml for test-matrix.py
-    if is_ubuntu; then
+    if uses_debs; then
         sudo apt-get update
         sudo apt-get install python-yaml
     elif is_fedora; then
@@ -136,6 +136,12 @@ EOF
         echo "HEAT_FETCHED_TEST_IMAGE=Fedora-i386-20-20131211.1-sda" >>"$localrc_file"
     fi
 
+    if [[ "$DEVSTACK_GATE_VIRT_DRIVER" == "libvirt" ]]; then
+        if [[ -n "$DEVSTACK_GATE_LIBVIRT_TYPE" ]]; then
+            echo "LIBVIRT_TYPE=${DEVSTACK_GATE_LIBVIRT_TYPE}" >>localrc
+        fi
+    fi
+
     if [[ "$DEVSTACK_GATE_VIRT_DRIVER" == "openvz" ]]; then
         echo "SKIP_EXERCISES=${SKIP_EXERCISES},volumes" >>"$localrc_file"
         echo "DEFAULT_INSTANCE_TYPE=m1.small" >>"$localrc_file"
@@ -150,6 +156,7 @@ EOF
         echo "IRONIC_VM_LOG_DIR=$BASE/$localrc_oldnew/ironic-bm-logs" >>"$localrc_file"
         echo "DEFAULT_INSTANCE_TYPE=baremetal" >>"$localrc_file"
         echo "BUILD_TIMEOUT=300" >>"$localrc_file"
+        echo "IRONIC_CALLBACK_TIMEOUT=240" >>"$localrc_file"
         if [[ "$DEVSTACK_GATE_IRONIC_BUILD_RAMDISK" -eq 0 ]]; then
             echo "IRONIC_BUILD_DEPLOY_RAMDISK=False" >>"$localrc_file"
         fi
@@ -293,30 +300,46 @@ EOF
         echo "CEILOMETER_NOTIFICATION_TOPICS=$CEILOMETER_NOTIFICATION_TOPICS" >>"$localrc_file"
     fi
 
+    if [[ "$DEVSTACK_GATE_NOVA_REPLACE_V2_ENDPOINT_WITH_V21_API" -eq "1" ]]; then
+        echo "NOVA_API_VERSION=v21default" >> "$localrc_file"
+    fi
+
     if [[ "$DEVSTACK_GATE_INSTALL_TESTONLY" -eq "1" ]]; then
         # Sometimes we do want the test packages
         echo "INSTALL_TESTONLY_PACKAGES=True" >> "$localrc_file"
     fi
 
     if [[ "$DEVSTACK_GATE_TOPOLOGY" != "aio" ]]; then
+        echo "NOVA_ALLOW_MOVE_TO_SAME_HOST=False" >> "$localrc_file"
         local primary_node=`cat /etc/nodepool/primary_node_private`
         echo "SERVICE_HOST=$primary_node" >>"$localrc_file"
-    fi
-    if [[ "$role" = sub ]]; then
-        if [[ $original_enabled_services  =~ "qpid" ]]; then
-            echo "QPID_HOST=$primary_node" >>"$localrc_file"
-        fi
-        if [[ $original_enabled_services =~ "rabbit" ]]; then
-            echo "RABBIT_HOST=$primary_node" >>"$localrc_file"
-        fi
-        echo "DATABASE_HOST=$primary_node" >>"$localrc_file"
-        if [[ $original_enabled_services =~ "mysql" ]]; then
-             echo "DATABASE_TYPE=mysql"  >>"$localrc_file"
+
+        if [[ "$role" = sub ]]; then
+            if [[ $original_enabled_services  =~ "qpid" ]]; then
+                echo "QPID_HOST=$primary_node" >>"$localrc_file"
+            fi
+            if [[ $original_enabled_services =~ "rabbit" ]]; then
+                echo "RABBIT_HOST=$primary_node" >>"$localrc_file"
+            fi
+            echo "DATABASE_HOST=$primary_node" >>"$localrc_file"
+            if [[ $original_enabled_services =~ "mysql" ]]; then
+                 echo "DATABASE_TYPE=mysql"  >>"$localrc_file"
+            else
+                 echo "DATABASE_TYPE=postgresql"  >>"$localrc_file"
+            fi
+            echo "GLANCE_HOSTPORT=$primary_node:9292" >>"$localrc_file"
+            echo "Q_HOST=$primary_node" >>"$localrc_file"
+            # Set HOST_IP in subnodes before copying localrc to each node
         else
-             echo "DATABASE_TYPE=postgresql"  >>"$localrc_file"
+            echo "HOST_IP=$primary_node" >>"$localrc_file"
         fi
-        echo "GLANCE_HOSTPORT=$primary_node:9292" >>"$localrc_file"
-        echo "Q_HOST=$primary_node" >>"$localrc_file"
+    fi
+
+    # a way to pass through arbitrary devstack config options so that
+    # we don't need to add new devstack-gate options every time we
+    # want to create a new config.
+    if [[ -n "$DEVSTACK_LOCAL_CONFIG" ]]; then
+        echo "$DEVSTACK_LOCAL_CONFIG" >>"$localrc_file"
     fi
 
 }
@@ -394,7 +417,7 @@ else
         sudo cp /etc/nodepool/id_rsa $BASE/new/.ssh/
         sudo chmod 600 $BASE/new/.ssh/authorized_keys
         sudo chmod 400 $BASE/new/.ssh/id_rsa
-        for NODE in `cat /etc/nodepool/sub_nodes`; do
+        for NODE in `cat /etc/nodepool/sub_nodes_private`; do
             echo "Copy Files to  $NODE"
             remote_copy_dir $NODE $BASE/new/devstack-gate $WORKSPACE
             remote_copy_file $WORKSPACE/test_env.sh $NODE:$WORKSPACE/test_env.sh
@@ -455,14 +478,22 @@ EOF
 
     if [[ "$DEVSTACK_GATE_TOPOLOGY" != "aio" ]]; then
         echo "Preparing cross node connectivity"
-        # test ssh connection and populete know_hosts and allow connection from the fixed ip
-        for NODE in `cat /etc/nodepool/sub_nodes`; do
-            echo "Running devstack on $NODE"
-            remote_copy_file sub_localrc $NODE:$BASE/new/devstack/localrc
-            remote_command $NODE sudo chown -R stack:stack $BASE
+        # set up ssh_known_host files
+        for NODE in `cat /etc/nodepool/sub_nodes_private`; do
+            ssh-keyscan $NODE | sudo tee --append tmp_ssh_known_hosts > /dev/null
         done
+        ssh-keyscan `cat /etc/nodepool/primary_node_private` | sudo tee --append tmp_ssh_known_hosts > /dev/null
+        sudo cp tmp_ssh_known_hosts /etc/ssh/ssh_known_hosts
+        sudo chmod 444 /etc/ssh/ssh_known_hosts
 
-        for NODE in `cat /etc/nodepool/sub_nodes`; do
+        for NODE in `cat /etc/nodepool/sub_nodes_private`; do
+            remote_copy_file tmp_ssh_known_hosts $NODE:$BASE/new/tmp_ssh_known_hosts
+            remote_command $NODE sudo mv $BASE/new/tmp_ssh_known_hosts /etc/ssh/ssh_known_hosts
+            remote_command $NODE sudo chmod 444 /etc/ssh/ssh_known_hosts
+            sudo cp sub_localrc tmp_sub_localrc
+            echo "HOST_IP=$NODE" | sudo tee --append tmp_sub_localrc > /dev/null
+            remote_copy_file tmp_sub_localrc $NODE:$BASE/new/devstack/localrc
+            remote_command $NODE sudo chown -R stack:stack $BASE
             echo "Running devstack on $NODE"
             remote_command $NODE "cd $BASE/new/devstack; source $WORKSPACE/test_env.sh; export -n PROJECTS; sudo -H -u stack stdbuf -oL -eL ./stack.sh > /dev/null"
         done
@@ -524,7 +555,7 @@ if [[ "$DEVSTACK_GATE_TEMPEST" -eq "1" ]]; then
         sudo -H -u tempest tox -efull -- --concurrency=$TEMPEST_CONCURRENCY
     elif [[ "$DEVSTACK_GATE_TEMPEST_STRESS" -eq "1" ]] ; then
         echo "Running stress tests"
-        sudo -H -u tempest tox -estress -- -d 3600 -S -s -t tempest/stress/etc/stress-tox-job.json
+        sudo -H -u tempest tox -estress -- $DEVSTACK_GATE_TEMPEST_STRESS_ARGS
     elif [[ "$DEVSTACK_GATE_TEMPEST_HEAT_SLOW" -eq "1" ]] ; then
         echo "Running slow heat tests"
         sudo -H -u tempest tox -eheat-slow -- --concurrency=$TEMPEST_CONCURRENCY
